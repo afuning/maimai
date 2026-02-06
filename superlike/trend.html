@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Superlike 数据趋势对比</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .chart-container {
+            position: relative;
+            margin: auto;
+            height: 65vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 p-4 md:p-8">
+    <div class="max-w-6xl mx-auto bg-white rounded-2xl shadow-xl p-6 border border-slate-100">
+        <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 border-b pb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800">Superlike 趋势对比分析</h1>
+                <p class="text-slate-500 mt-1">支持多日重叠对比。未来时间点不进行数据补全。</p>
+            </div>
+            <div class="flex flex-wrap gap-4">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-indigo-500"></span>
+                    <select id="dateSelector1" class="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg p-2 focus:ring-indigo-500"></select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+                    <select id="dateSelector2" class="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg p-2 focus:ring-emerald-500"></select>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="superlikeChart"></canvas>
+        </div>
+
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
+            <div class="flex items-center gap-2">
+                <div class="px-2 py-1 bg-slate-100 rounded italic">注：</div>
+                <span>实线点为原始数据或历史插值，曲线截止至当前实际时间。</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 模拟数据 (包含日期和 20 分钟间隔的时间点)
+        const csvData = {
+            "timePoints": [
+                "08:40","09:00","09:20","09:40","10:00","10:20","10:40",
+                "11:00","11:20","11:40","12:00","12:20","12:40",
+                "13:00","13:20","13:40","14:00","14:20","14:40",
+                "15:00","15:20","15:40","16:00","16:20","16:40",
+                "17:00","17:20","17:40","18:00","18:20","18:40",
+                "19:00","19:20","19:40","20:00","20:20","20:40",
+                "21:00","21:20","21:40","22:00","22:20","22:40",
+                "23:00","23:20","23:40","00:00"
+            ],
+            "records": {
+                "2026-02-05": [
+                    2590,2632,2682,2717,2770,2797,2832,2885,2910,2949,
+                    2977,3009,3096,null,null,3165,3181,3194,3204,3213,
+                    3219,3241,3254,3261,3270,3282,3297,3312,3334,3348,
+                    null,3402,3428,3454,3475,3504,3535,3567,3578,3618,
+                    3658,3684,3714,3742,3779,3800,3841
+                ],
+                "2026-02-06": [
+                    2653,2706,2742,2761,2793,2827, 2857,
+                    2902, 2924, 3045, 3089, 3109, 3160,
+                    3177, 3220, 3249, 3271, 3289, 3303,
+                    3317, 3337, 3350, 3368, 3375, 3393,
+                    3410, 3426, 3438, 3457, null, null,
+                    null, null, null, null, null, null,
+                    null, null, null, null, null, null, 
+                    null, null, null, null
+                ]
+            }
+        };
+
+        let chart;
+        const ctx = document.getElementById('superlikeChart').getContext('2d');
+        
+        // 获取当前时间信息
+        function getCurrentTimeInfo() {
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+            const timeStr = now.toTimeString().substring(0, 5); // HH:mm
+            return { dateStr, timeStr };
+        }
+
+        // 处理数据：插值已过期缺失值，忽略未来数据
+        function processData(date, rawArr) {
+            const { dateStr, timeStr } = getCurrentTimeInfo();
+            const isToday = (date === dateStr);
+            const data = [...rawArr];
+
+            // 1. 先把未来时间点标记为 undefined (Chart.js 不渲染)
+            if (isToday) {
+                for (let i = 0; i < data.length; i++) {
+                    if (csvData.timePoints[i] > timeStr) {
+                        data[i] = undefined; 
+                    }
+                }
+            }
+
+            // 2. 对非未来的 null 值进行线性插值
+            for (let i = 0; i < data.length; i++) {
+                if (data[i] === null) {
+                    let prev = i - 1;
+                    let next = i + 1;
+                    
+                    while (prev >= 0 && (data[prev] === null || data[prev] === undefined)) prev--;
+                    while (next < data.length && (data[next] === null || data[next] === undefined)) next++;
+
+                    if (prev !== -1 && next < data.length && data[next] !== undefined) {
+                        // 夹在两个有效历史值中间，进行插值
+                        const startVal = data[prev];
+                        const endVal = data[next];
+                        data[i] = Math.round(startVal + (endVal - startVal) * ((i - prev) / (next - prev)));
+                    } else if (prev !== -1 && (next === data.length || data[next] === undefined)) {
+                        // 后面没数据了，不补全（保持 null 或 undefined）
+                        data[i] = undefined;
+                    }
+                }
+            }
+            return data;
+        }
+
+        function initChart() {
+            const date1 = document.getElementById('dateSelector1').value;
+            const date2 = document.getElementById('dateSelector2').value;
+
+            const dataset1 = processData(date1, csvData.records[date1]);
+            const dataset2 = processData(date2, csvData.records[date2]);
+
+            if (chart) chart.destroy();
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: csvData.timePoints,
+                    datasets: [
+                        {
+                            label: date1,
+                            data: dataset1,
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'transparent',
+                            borderWidth: 3,
+                            tension: 0.4,
+                            pointRadius: 2,
+                        },
+                        {
+                            label: date2,
+                            data: dataset2,
+                            borderColor: '#10b981',
+                            backgroundColor: 'transparent',
+                            borderWidth: 3,
+                            tension: 0.4,
+                            pointRadius: 2,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const date = context.dataset.label;
+                                    const val = context.parsed.y;
+                                    const isEstimated = csvData.records[date][context.dataIndex] === null;
+                                    return `${date}: ${val}${isEstimated ? ' (估算)' : ''}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { 
+                            beginAtZero: false,
+                            grid: { color: '#f1f5f9' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                callback: function(val, index) {
+                                    // 只显示整点刻度
+                                    return csvData.timePoints[index].endsWith(':00') ? csvData.timePoints[index] : null;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 初始化下拉框
+        const dates = Object.keys(csvData.records).reverse();
+        const sel1 = document.getElementById('dateSelector1');
+        const sel2 = document.getElementById('dateSelector2');
+
+        dates.forEach((date, i) => {
+            const opt1 = new Option(date, date);
+            const opt2 = new Option(date, date);
+            sel1.add(opt1);
+            sel2.add(opt2);
+        });
+
+        // 默认对比最近两天
+        if (dates.length >= 2) {
+            sel1.selectedIndex = 0;
+            sel2.selectedIndex = 1;
+        }
+
+        sel1.addEventListener('change', initChart);
+        sel2.addEventListener('change', initChart);
+
+        initChart();
+    </script>
+</body>
+</html>
