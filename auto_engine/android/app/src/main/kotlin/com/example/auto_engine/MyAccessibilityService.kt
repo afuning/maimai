@@ -1,40 +1,123 @@
 package com.example.auto_engine
 
 import android.accessibilityservice.AccessibilityService
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
 class MyAccessibilityService : AccessibilityService() {
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
-        
-        // We only care about window state changes or content changes in Weibo
-        if (event.packageName != "com.sina.weibo") return
-        
-        val rootNode = rootInActiveWindow ?: return
-        
-        // Search for "超like" text
-        findAndReportSuperLike(rootNode)
+    private val handler = Handler(Looper.getMainLooper())
+    private var isPolling = false
+
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            if (WeiboState.hasReadLike || WeiboState.isTimeout()) {
+                stopPolling()
+                if (WeiboState.isTimeout() && !WeiboState.hasReadLike) {
+                    ScraperScheduler.onScrapeError("轮询超时 (15s)")
+                    WeiboState.hasReadLike = true
+                }
+                return
+            }
+
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                if (WeiboState.isReady()) {
+                    if (findAndReportSuperLike(rootNode)) {
+                        stopPolling()
+                        return
+                    }
+
+                    if (!WeiboState.hasClickedExpand) {
+                        if (clickExpandMore(rootNode)) {
+                            WeiboState.hasClickedExpand = true
+                        }
+                    }
+                }
+            }
+
+            handler.postDelayed(this, 500)
+        }
     }
 
-    private fun findAndReportSuperLike(node: AccessibilityNodeInfo) {
+    private fun startPolling() {
+        if (!isPolling) {
+            isPolling = true
+            handler.post(pollRunnable)
+            Log.d("Weibo", "开始主动轮询抓取任务...")
+        }
+    }
+
+    private fun stopPolling() {
+        isPolling = false
+        handler.removeCallbacks(pollRunnable)
+        Log.d("Weibo", "结束轮询任务。")
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+        if (event.packageName != "com.sina.weibo") return
+        
+        // When we see a Weibo event, ensure polling is started if we haven't finished the task
+        if (!WeiboState.hasReadLike) {
+            startPolling()
+        }
+    }
+
+    private fun clickExpandMore(root: AccessibilityNodeInfo): Boolean {
+        Log.d("Weibo", "开始尝试点击展开图标...")
+        val nodes = root.findAccessibilityNodeInfosByText("expand")
+        
+        if (nodes.isNullOrEmpty()) {
+            Log.w("Weibo", "未找到针对 'expand' 的节点")
+            return false
+        }
+
+        for (node in nodes) {
+            val desc = node.contentDescription?.toString() ?: ""
+            val text = node.text?.toString() ?: ""
+            
+            if ((desc.contains("expand", ignoreCase = true) || text.contains("expand", ignoreCase = true))
+                && node.isClickable
+            ) {
+                val success = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                Log.d("Weibo", "执行点击 expand: $success")
+                return success
+            }
+        }
+        return false
+    }
+
+    private fun dumpNodes(node: AccessibilityNodeInfo?, depth: Int = 0) {
+        if (node == null || depth > 20) return
+        val desc = node.contentDescription?.toString() ?: ""
+        val text = node.text?.toString() ?: ""
+        if (desc.isNotEmpty() || text.isNotEmpty()) {
+            Log.v("WeiboDump", "  ".repeat(depth) + "Node: text='$text', desc='$desc', clickable=${node.isClickable}, viewId=${node.viewIdResourceName}")
+        }
+        for (i in 0 until node.childCount) {
+            dumpNodes(node.getChild(i), depth + 1)
+        }
+    }
+
+    private fun findAndReportSuperLike(node: AccessibilityNodeInfo): Boolean {
         val nodes = node.findAccessibilityNodeInfosByText("超like")
-        if (nodes != null && nodes.isNotEmpty()) {
+        if (!nodes.isNullOrEmpty()) {
             for (foundNode in nodes) {
-                // Usually the number is in the same node or a parent node's sibling
                 val text = foundNode.text?.toString() ?: ""
                 Log.d("MyAccessibilityService", "Found potential node: $text")
                 
-                // If the text contains the number (e.g. "1.2万超like"), extract it
+                // Case A: number is in the same node
                 if (text.contains(Regex("\\d"))) {
                     val value = extractValue(text)
                     ScraperScheduler.onScrapeResult(value)
-                    return
+                    return true
                 }
                 
-                // Otherwise, look at parent's children (siblings)
+                // Case B: number is in a sibling node
                 val parent = foundNode.parent
                 if (parent != null) {
                     for (i in 0 until parent.childCount) {
@@ -43,21 +126,27 @@ class MyAccessibilityService : AccessibilityService() {
                         if (childText.contains(Regex("\\d"))) {
                             val value = extractValue(childText)
                             ScraperScheduler.onScrapeResult(value)
-                            return
+                            return true
                         }
                     }
                 }
             }
         }
-        
-        // Recursive search if not found directly by text (safety)
-        // Note: findAccessibilityNodeInfosByText is usually enough but for some dynamic layouts...
+        return false
     }
 
     private fun extractValue(text: String): String {
-        // Simple extraction: digits and dots/unit (like '万')
-        val regex = Regex("[0-9.\\u4e00-\\u9fa5]+")
-        return regex.find(text)?.value ?: text
+        // Find the first sequence that starts with a digit
+        // Supports integers, decimals, and optional Chinese units like '万'
+        val regex = Regex("[0-9]+(?:\\.[0-9]+)?[\\u4e00-\\u9fa5]?")
+        val match = regex.find(text)
+        
+        if (match != null) {
+            return match.value
+        }
+        
+        // Fallback: if no digits found, but we are here, just return the original trimmed text
+        return text.trim()
     }
 
     override fun onInterrupt() {

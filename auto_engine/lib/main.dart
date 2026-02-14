@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'trend_analysis_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -31,7 +32,7 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   static const platform = MethodChannel(
     'com.example.auto_engine/accessibility',
   );
@@ -40,25 +41,35 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isTaskActive = false;
   String _lastScrapedValue = 'N/A';
   String _lastScrapeTime = 'Never';
+  String _lastError = '';
 
   final TextEditingController _containerIdController = TextEditingController(
     text: "10080844cc042c1e6385c391f94e8094939df5",
-  ); // Example or placeholder
+  );
 
   Timer? _statusTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkAccessibility();
     _startStatusMonitoring();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _statusTimer?.cancel();
     _containerIdController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAccessibility();
+    }
   }
 
   void _startStatusMonitoring() {
@@ -75,13 +86,14 @@ class _MyHomePageState extends State<MyHomePage> {
       if (status != null) {
         setState(() {
           _isTaskActive = status['isActive'] ?? false;
+          _lastError = status['lastError'] ?? '';
+          _lastScrapedValue = status['lastScrapeValue'] ?? 'N/A';
           final int timeMs = status['lastScrapeTime'] ?? 0;
           if (timeMs > 0) {
             _lastScrapeTime = DateTime.fromMillisecondsSinceEpoch(
               timeMs,
             ).toString().split('.').first;
           }
-          _lastScrapedValue = status['lastScrapeValue'] ?? 'N/A';
         });
       }
     } catch (e) {
@@ -111,9 +123,11 @@ class _MyHomePageState extends State<MyHomePage> {
       }
       _updateTaskStatus();
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
     }
   }
 
@@ -122,13 +136,17 @@ class _MyHomePageState extends State<MyHomePage> {
       await platform.invokeMethod('testScrape', {
         'containerId': _containerIdController.text.trim(),
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Test scrape triggered...")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Test scrape triggered...")),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Test Error: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Test Error: $e")));
+      }
     }
   }
 
@@ -154,7 +172,64 @@ class _MyHomePageState extends State<MyHomePage> {
             _buildControlCard(),
             const SizedBox(height: 20),
             _buildLogCard(),
+            const SizedBox(height: 20),
+            _buildAnalysisLauncher(),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnalysisLauncher() {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const TrendAnalysisPage()),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.analytics,
+                  color: Colors.indigo,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(width: 20),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Trend Analysis',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'View and compare growth curves',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 16),
+            ],
+          ),
         ),
       ),
     );
@@ -171,10 +246,32 @@ class _MyHomePageState extends State<MyHomePage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Accessibility Service:',
-                  style: TextStyle(fontSize: 16),
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Flexible(
+                        child: Text(
+                          'Accessibility Service:',
+                          style: TextStyle(fontSize: 16),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.refresh,
+                          size: 20,
+                          color: Colors.grey,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: _checkAccessibility,
+                        tooltip: "Refresh Status",
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 GestureDetector(
                   onTap: _openAccessibilitySettings,
                   child: Container(
@@ -304,6 +401,19 @@ class _MyHomePageState extends State<MyHomePage> {
             const SizedBox(height: 15),
             _buildLogRow('Value:', _lastScrapedValue, Colors.amber),
             _buildLogRow('Time:', _lastScrapeTime, Colors.white),
+            if (_lastError.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              const Divider(color: Colors.grey),
+              const Text(
+                'Status/Error:',
+                style: TextStyle(color: Colors.redAccent, fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _lastError,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+              ),
+            ],
             const SizedBox(height: 10),
             const Text(
               'Next scrape will be triggered automatically in ~30m.',

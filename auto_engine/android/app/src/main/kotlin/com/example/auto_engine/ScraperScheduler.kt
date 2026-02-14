@@ -20,6 +20,7 @@ object ScraperScheduler {
     var containerId: String = ""
     var lastScrapeTime: Long = 0
     var lastScrapeValue: String = "N/A"
+    var lastError: String = ""
     
     private val handler = Handler(Looper.getMainLooper())
     private var context: Context? = null
@@ -40,6 +41,7 @@ object ScraperScheduler {
 
     fun init(context: Context) {
         this.context = context.applicationContext
+        DataRecorder.init(context)
     }
 
     fun start(id: String) {
@@ -57,13 +59,8 @@ object ScraperScheduler {
     }
 
     fun triggerTestScrape(id: String) {
-        val originalId = containerId
         containerId = id
         performScrape()
-        // Restore ID if it was different, although usually it's the same
-        if (originalId.isNotEmpty()) {
-            containerId = originalId
-        }
     }
 
     private fun shouldScrape(now: Long): Boolean {
@@ -87,11 +84,12 @@ object ScraperScheduler {
     private fun performScrape() {
         if (containerId.isEmpty()) return
         
-        Log.d(TAG, "Triggering scrape for $containerId")
+        WeiboState.reset()
+        Log.d(TAG, "Triggering scrape for $containerId, state reset.")
         val intent = Intent(Intent.ACTION_VIEW).apply {
             data = Uri.parse("sinaweibo://container/getIndex?containerid=$containerId")
             component = ComponentName("com.sina.weibo", "com.sina.weibo.supergroup.SGPageActivity")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         context?.startActivity(intent)
     }
@@ -99,6 +97,14 @@ object ScraperScheduler {
     fun onScrapeResult(value: String) {
         lastScrapeValue = value
         lastScrapeTime = System.currentTimeMillis()
+        lastError = ""
+        WeiboState.hasReadLike = true
+        DataRecorder.record(containerId, value)
         Log.d(TAG, "Scrape result: $value at $lastScrapeTime")
+    }
+
+    fun onScrapeError(reason: String) {
+        lastError = reason
+        Log.e(TAG, "Scrape error: $reason")
     }
 }
