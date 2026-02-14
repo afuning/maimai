@@ -1,5 +1,10 @@
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 class TrendAnalysisPage extends StatefulWidget {
   const TrendAnalysisPage({super.key});
@@ -138,6 +143,11 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
             icon: const Icon(Icons.description_outlined),
             tooltip: "Raw Data",
             onPressed: () => _showRawData(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.share),
+            tooltip: "Export Report",
+            onPressed: _exportReport,
           ),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchHistory),
         ],
@@ -379,6 +389,243 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
     return val.toInt().toString();
   }
 
+  Future<void> _exportReport() async {
+    if (_isLoading || _selectedDate == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final targetData = _groupedHistory[_selectedDate] ?? [];
+      final compareData = _compareDate != null
+          ? (_groupedHistory[_compareDate] ?? [])
+          : null;
+
+      final reportWidget = Material(
+        color: Colors.white,
+        child: Container(
+          width: 400,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Zhao Jinmai Super-Like Report",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.indigo,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Target Date: $_selectedDate",
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+              if (_compareDate != null)
+                Text(
+                  "Comparison Date: $_compareDate",
+                  style: const TextStyle(fontSize: 14, color: Colors.orange),
+                ),
+              const SizedBox(height: 24),
+              const Text(
+                "Trend Comparison Chart",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                height: 200,
+                padding: const EdgeInsets.only(
+                  left: 35,
+                  right: 10,
+                  bottom: 20,
+                  top: 10,
+                ),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade200),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: TrendChart(
+                  primaryData: targetData,
+                  compareData: compareData,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                "Detailed Records (Today)",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Table(
+                border: TableBorder.all(
+                  color: Colors.grey.shade300,
+                  width: 0.5,
+                ),
+                columnWidths: const {
+                  0: FlexColumnWidth(1),
+                  1: FlexColumnWidth(1.5),
+                  2: FlexColumnWidth(1),
+                },
+                children: [
+                  TableRow(
+                    decoration: BoxDecoration(color: Colors.grey.shade100),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text(
+                          "Time",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text(
+                          "Value",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text(
+                          "Growth",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  ...List.generate(targetData.length, (index) {
+                    final record = targetData[index];
+                    final prev = index > 0
+                        ? targetData[index - 1].value
+                        : record.value;
+                    final diff = record.value - prev;
+                    final timeStr =
+                        "${record.time.hour.toString().padLeft(2, '0')}:${record.time.minute.toString().padLeft(2, '0')}";
+                    return TableRow(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(
+                            timeStr,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(
+                            _formatValue(record.value),
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(
+                            index == 0 ? "-" : "+${_formatValue(diff)}",
+                            style: TextStyle(
+                              color: diff > 0 ? Colors.green : Colors.grey,
+                              fontWeight: diff > 0
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+              const SizedBox(height: 32),
+              const Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  "Exported from Auto Engine",
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      final boundary = RenderRepaintBoundary();
+      final view = ui.PlatformDispatcher.instance.views.first;
+      final pipelineOwner = PipelineOwner();
+      final buildOwner = BuildOwner(focusManager: FocusManager());
+
+      final renderView = RenderView(
+        view: view,
+        configuration: ViewConfiguration(
+          logicalConstraints: BoxConstraints.tight(const ui.Size(400, 2000)),
+          devicePixelRatio: view.devicePixelRatio,
+        ),
+        child: RenderPositionedBox(
+          alignment: Alignment.topLeft,
+          child: boundary,
+        ),
+      );
+
+      pipelineOwner.rootNode = renderView;
+      renderView.prepareInitialFrame();
+
+      final rootElement = RenderObjectToWidgetAdapter<RenderBox>(
+        container: boundary,
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: reportWidget,
+        ),
+      ).attachToRenderTree(buildOwner);
+
+      buildOwner.buildScope(rootElement);
+      buildOwner.finalizeTree();
+
+      pipelineOwner.flushLayout();
+      pipelineOwner.flushCompositingBits();
+      pipelineOwner.flushPaint();
+
+      final image = await boundary.toImage(pixelRatio: 2.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      final pngBytes = byteData!.buffer.asUint8List();
+
+      final tempDir = await getTemporaryDirectory();
+      final file = File(
+        '${tempDir.path}/trend_report_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await file.writeAsBytes(pngBytes);
+
+      if (mounted) Navigator.pop(context);
+
+      await Share.shareXFiles([
+        XFile(file.path),
+      ], text: '赵今麦超话趋势报告 - $_selectedDate');
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Export Error: $e")));
+      }
+      debugPrint("Export failed: $e");
+    }
+  }
+
   void _showRecordsManagement() {
     final selectedRecords = _groupedHistory[_selectedDate] ?? [];
     if (selectedRecords.isEmpty) return;
@@ -612,6 +859,40 @@ class _TrendChartState extends State<TrendChart> {
     }
   }
 
+  (double, double) _getTimeRange() {
+    if (widget.primaryData.isEmpty) return (0.0, 1440.0);
+
+    double min =
+        widget.primaryData.first.time.hour * 60.0 +
+        widget.primaryData.first.time.minute;
+    double max =
+        widget.primaryData.last.time.hour * 60.0 +
+        widget.primaryData.last.time.minute;
+
+    if (widget.compareData != null && widget.compareData!.isNotEmpty) {
+      final cMin =
+          widget.compareData!.first.time.hour * 60.0 +
+          widget.compareData!.first.time.minute;
+      final cMax =
+          widget.compareData!.last.time.hour * 60.0 +
+          widget.compareData!.last.time.minute;
+      if (cMin < min) min = cMin;
+      if (cMax > max) max = cMax;
+    }
+
+    // Ensure a minimum range of 2 hours and align to hour boundaries
+    min = (min / 60).floor() * 60.0;
+    max = (max / 60).ceil() * 60.0;
+
+    if (max - min < 120) {
+      max = min + 120;
+    }
+    // Cap at 24h
+    if (max > 1440) max = 1440;
+
+    return (min, max);
+  }
+
   void _handleTap(TapDownDetails details) {
     if (widget.primaryData.isEmpty) return;
 
@@ -619,13 +900,15 @@ class _TrendChartState extends State<TrendChart> {
     final Size size = box.size;
     final Offset localPos = details.localPosition;
 
-    const double maxMinutes = 1440.0;
+    final (minMinutes, maxMinutes) = _getTimeRange();
+    final range = maxMinutes - minMinutes;
+
     TrendData? closest;
     double minDistance = double.infinity;
 
     for (var data in widget.primaryData) {
       final minutes = data.time.hour * 60.0 + data.time.minute;
-      final x = (minutes / maxMinutes) * size.width;
+      final x = (minutes - minMinutes) / range * size.width;
       final distance = (x - localPos.dx).abs();
       if (distance < minDistance) {
         minDistance = distance;
@@ -633,7 +916,6 @@ class _TrendChartState extends State<TrendChart> {
       }
     }
 
-    // Only select if within a reasonable horizontal distance (e.g., 30px)
     if (minDistance < 30) {
       setState(() {
         _selectedPoint = closest;
@@ -667,13 +949,14 @@ class _TrendChartState extends State<TrendChart> {
   }
 
   Widget _buildTooltip() {
-    const double maxMinutes = 1440.0;
+    final (minMinutes, maxMinutes) = _getTimeRange();
+    final range = maxMinutes - minMinutes;
     final minutes =
         _selectedPoint!.time.hour * 60.0 + _selectedPoint!.time.minute;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final x = (minutes / maxMinutes) * constraints.maxWidth;
+        final x = (minutes - minMinutes) / range * constraints.maxWidth;
         final timeStr =
             "${_selectedPoint!.time.hour.toString().padLeft(2, '0')}:${_selectedPoint!.time.minute.toString().padLeft(2, '0')}";
         final valStr = _formatValue(_selectedPoint!.value);
@@ -734,11 +1017,41 @@ class _ChartPainter extends CustomPainter {
 
   _ChartPainter(this.primaryData, this.compareData, this.selectedPoint);
 
+  (double, double) _getTimeRange() {
+    if (primaryData.isEmpty) return (0.0, 1440.0);
+
+    double min =
+        primaryData.first.time.hour * 60.0 + primaryData.first.time.minute;
+    double max =
+        primaryData.last.time.hour * 60.0 + primaryData.last.time.minute;
+
+    if (compareData != null && compareData!.isNotEmpty) {
+      final cMin =
+          compareData!.first.time.hour * 60.0 + compareData!.first.time.minute;
+      final cMax =
+          compareData!.last.time.hour * 60.0 + compareData!.last.time.minute;
+      if (cMin < min) min = cMin;
+      if (cMax > max) max = cMax;
+    }
+
+    min = (min / 60).floor() * 60.0;
+    max = (max / 60).ceil() * 60.0;
+
+    if (max - min < 120) {
+      max = min + 120;
+    }
+    if (max > 1440) max = 1440;
+
+    return (min, max);
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (primaryData.isEmpty) return;
 
-    const double maxMinutes = 1440.0;
+    final (minMinutes, maxMinutes) = _getTimeRange();
+    final timeRange = maxMinutes - minMinutes;
+
     double minVal = primaryData
         .map((e) => e.value)
         .reduce((a, b) => a < b ? a : b);
@@ -765,7 +1078,7 @@ class _ChartPainter extends CustomPainter {
     }
 
     final finalRange = maxVal - minVal;
-    _drawGrid(canvas, size, minVal, maxVal);
+    _drawGrid(canvas, size, minVal, maxVal, minMinutes, maxMinutes);
 
     if (compareData != null && compareData!.isNotEmpty) {
       _drawLines(
@@ -775,7 +1088,8 @@ class _ChartPainter extends CustomPainter {
         Colors.orange.withOpacity(0.4),
         minVal,
         finalRange,
-        maxMinutes,
+        minMinutes,
+        timeRange,
       );
     }
     _drawLines(
@@ -785,11 +1099,19 @@ class _ChartPainter extends CustomPainter {
       Colors.indigo,
       minVal,
       finalRange,
-      maxMinutes,
+      minMinutes,
+      timeRange,
     );
 
     if (selectedPoint != null) {
-      _drawSelectionHighlight(canvas, size, minVal, finalRange, maxMinutes);
+      _drawSelectionHighlight(
+        canvas,
+        size,
+        minVal,
+        finalRange,
+        minMinutes,
+        timeRange,
+      );
     }
   }
 
@@ -798,34 +1120,31 @@ class _ChartPainter extends CustomPainter {
     Size size,
     double minVal,
     double range,
-    double maxMinutes,
+    double minMinutes,
+    double timeRange,
   ) {
     final minutes =
         selectedPoint!.time.hour * 60.0 + selectedPoint!.time.minute;
-    final x = (minutes / maxMinutes) * size.width;
+    final x = (minutes - minMinutes) / timeRange * size.width;
     final y =
         size.height - ((selectedPoint!.value - minVal) / range * size.height);
 
-    // Vertical guide line
     final linePaint = Paint()
       ..color = Colors.indigo.withOpacity(0.3)
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
     canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
 
-    // Highlight outer ring
     final outerRing = Paint()
       ..color = Colors.indigo.withOpacity(0.2)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(Offset(x, y), 8, outerRing);
 
-    // Highlight inner dot
     final innerDot = Paint()
       ..color = Colors.indigo
       ..style = PaintingStyle.fill;
     canvas.drawCircle(Offset(x, y), 4, innerDot);
 
-    // White core
     final core = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill;
@@ -839,7 +1158,8 @@ class _ChartPainter extends CustomPainter {
     Color color,
     double minVal,
     double range,
-    double maxMinutes,
+    double minMinutes,
+    double timeRange,
   ) {
     final paint = Paint()
       ..color = color
@@ -854,7 +1174,7 @@ class _ChartPainter extends CustomPainter {
     bool moved = false;
     for (int i = 0; i < data.length; i++) {
       final minutes = data[i].time.hour * 60.0 + data[i].time.minute;
-      final x = (minutes / maxMinutes) * size.width;
+      final x = (minutes - minMinutes) / timeRange * size.width;
       final y = size.height - ((data[i].value - minVal) / range * size.height);
       if (!moved) {
         path.moveTo(x, y);
@@ -867,10 +1187,19 @@ class _ChartPainter extends CustomPainter {
     canvas.drawPath(path, paint);
   }
 
-  void _drawGrid(Canvas canvas, Size size, double min, double max) {
+  void _drawGrid(
+    Canvas canvas,
+    Size size,
+    double min,
+    double max,
+    double minMin,
+    double maxMin,
+  ) {
     final gridPaint = Paint()
       ..color = Colors.grey.withOpacity(0.15)
       ..strokeWidth = 1;
+
+    // Horizontal grid
     for (var i = 0; i <= 4; i++) {
       final y = size.height * i / 4;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
@@ -888,14 +1217,23 @@ class _ChartPainter extends CustomPainter {
       );
     }
 
-    final timeLabels = ["00:00", "06:00", "12:00", "18:00", "24:00"];
-    for (var i = 0; i < timeLabels.length; i++) {
-      final x = size.width * i / (timeLabels.length - 1);
+    // Vertical grid (Dynamic Time Labels)
+    final rangeMin = maxMin - minMin;
+    final steps = 4;
+    for (var i = 0; i <= steps; i++) {
+      final x = size.width * i / steps;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+
+      final totalMinutes = minMin + (rangeMin * i / steps);
+      final hour = (totalMinutes / 60).floor();
+      final minute = (totalMinutes % 60).toInt();
+      final label =
+          "${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}";
+
       _drawText(
         canvas,
         Offset(x - 12, size.height + 4),
-        timeLabels[i],
+        label,
         const TextStyle(color: Colors.grey, fontSize: 8),
         24,
         TextAlign.center,
