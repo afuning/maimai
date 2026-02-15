@@ -79,6 +79,27 @@ class MainActivity : FlutterActivity() {
                     val success = DataRecorder.deleteRecord(timestamp)
                     result.success(success)
                 }
+                "addRecord" -> {
+                    val timestamp = call.argument<String>("timestamp") ?: ""
+                    val newValue = call.argument<String>("newValue") ?: ""
+                    val success = DataRecorder.addManualRecord(timestamp, newValue)
+                    result.success(success)
+                }
+                "getDailyFile" -> {
+                    val date = call.argument<String>("date") ?: ""
+                    val content = DataRecorder.getDailyContent(date)
+                    result.success(content)
+                }
+                "saveDailyFile" -> {
+                    val date = call.argument<String>("date") ?: ""
+                    val content = call.argument<String>("content") ?: ""
+                    val success = DataRecorder.saveDailyContent(date, content)
+                    result.success(success)
+                }
+                "getAllFiles" -> {
+                    val files = DataRecorder.getAllRecordFiles()
+                    result.success(files)
+                }
                 else -> {
                     result.notImplemented()
                 }

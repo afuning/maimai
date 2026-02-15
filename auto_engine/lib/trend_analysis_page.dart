@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:gal/gal.dart';
 
 class TrendAnalysisPage extends StatefulWidget {
   const TrendAnalysisPage({super.key});
@@ -45,6 +46,10 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
           final dateKey =
               "${data.time.year}-${data.time.month.toString().padLeft(2, '0')}-${data.time.day.toString().padLeft(2, '0')}";
           grouped.putIfAbsent(dateKey, () => []).add(data);
+        }
+
+        for (var records in grouped.values) {
+          records.sort((a, b) => a.time.compareTo(b.time));
         }
 
         setState(() {
@@ -103,31 +108,26 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
     return val != null ? val * multiplier : null;
   }
 
-  Future<void> _showRawData(BuildContext context) async {
+  Future<void> _exportAllCsv(BuildContext context) async {
     try {
-      final String? csvData = await platform.invokeMethod('getHistory');
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text("Raw CSV Data"),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: SingleChildScrollView(
-                child: SelectableText(csvData ?? "Empty"),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Close"),
-              ),
-            ],
-          ),
-        );
+      final List<dynamic>? files = await platform.invokeMethod('getAllFiles');
+      if (files != null && files.isNotEmpty) {
+        final xFiles = files.map((path) => XFile(path as String)).toList();
+        await Share.shareXFiles(xFiles, text: "All CSV Records");
+      } else {
+        if (context.mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text("No files to export")),
+           );
+        }
       }
     } catch (e) {
-      debugPrint("Error dumping CSV: $e");
+      debugPrint("Error exporting files: $e");
+      if (context.mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text("Export failed: $e")),
+         );
+      }
     }
   }
 
@@ -138,12 +138,17 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trend Analysis'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.description_outlined),
-            tooltip: "Raw Data",
-            onPressed: () => _showRawData(context),
-          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.calendar_month_outlined),
+              tooltip: "Add Date",
+              onPressed: _addNewDate,
+            ),
+            IconButton(
+              icon: const Icon(Icons.description_outlined),
+              tooltip: "Export All CSVs",
+              onPressed: () => _exportAllCsv(context),
+            ),
           IconButton(
             icon: const Icon(Icons.share),
             tooltip: "Export Report",
@@ -452,6 +457,7 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
                 child: TrendChart(
                   primaryData: targetData,
                   compareData: compareData,
+                  showDots: false,
                 ),
               ),
               const SizedBox(height: 24),
@@ -612,9 +618,62 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
 
       if (mounted) Navigator.pop(context);
 
-      await Share.shareXFiles([
-        XFile(file.path),
-      ], text: '赵今麦超话趋势报告 - $_selectedDate');
+
+
+      if (mounted) {
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.white,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.share, color: Colors.indigo),
+                  title: const Text("Share to Friend"),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Share.shareXFiles([
+                      XFile(file.path),
+                    ], text: '赵今麦超话趋势报告 - $_selectedDate');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library, color: Colors.indigo),
+                  title: const Text("Save to Album"),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Gal.putImage(file.path);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Saved to gallery successfully!"),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text("Failed to save: $e"),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
@@ -628,7 +687,7 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
 
   void _showRecordsManagement() {
     final selectedRecords = _groupedHistory[_selectedDate] ?? [];
-    if (selectedRecords.isEmpty) return;
+    // if (selectedRecords.isEmpty) return; // Allow opening to add records
 
     showModalBottomSheet(
       context: context,
@@ -657,15 +716,29 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    "Records for $_selectedDate",
+                    "$_selectedDate",
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
+                  Row(
+                    children: [
+                       IconButton(
+                        icon: const Icon(Icons.edit_note, color: Colors.indigo),
+                        tooltip: "Batch Edit",
+                        onPressed: () => _showBatchEditDialog(context),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline, color: Colors.indigo),
+                        tooltip: "Add Record",
+                        onPressed: () => _showAddRecordDialog(context),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -830,6 +903,343 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
       ),
     );
   }
+
+  Future<void> _addNewDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+
+    if (picked != null) {
+      final dateStr =
+          "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+
+      setState(() {
+        if (!_groupedHistory.containsKey(dateStr)) {
+          _groupedHistory[dateStr] = [];
+        }
+        _selectedDate = dateStr;
+      });
+    }
+  }
+
+  void _showAddRecordDialog(BuildContext ctx) {
+    if (_selectedDate == null) return;
+    final now = TimeOfDay.now();
+    TimeOfDay selectedTime = now;
+    final valueController = TextEditingController();
+
+    showDialog(
+      context: ctx,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text("Add New Record"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Date: $_selectedDate",
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    const Text("Time: "),
+                    TextButton(
+                      onPressed: () async {
+                        final t = await showTimePicker(
+                          context: context,
+                          initialTime: selectedTime,
+                          builder: (BuildContext context, Widget? child) {
+                            return MediaQuery(
+                              data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+                              child: child!,
+                            );
+                          },
+                        );
+                        if (t != null) {
+                          setDialogState(() => selectedTime = t);
+                        }
+                      },
+                      child: Text(
+                        "${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}",
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: valueController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: "Super Like Value",
+                    suffixText: "人",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final valStr = valueController.text.trim();
+                  if (valStr.isEmpty) return;
+
+                  final dateParts = _selectedDate!.split('-');
+                  final dt = DateTime(
+                    int.parse(dateParts[0]),
+                    int.parse(dateParts[1]),
+                    int.parse(dateParts[2]),
+                    selectedTime.hour,
+                    selectedTime.minute,
+                    0,
+                  );
+
+                  final timestamp =
+                      "${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} "
+                      "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:00";
+
+                  final success = await platform.invokeMethod('addRecord', {
+                    'timestamp': timestamp,
+                    'newValue': "${valStr}人",
+                  });
+
+                  if (context.mounted) {
+                    Navigator.pop(context); // Close dialog
+                    if (success == true) {
+                      _fetchHistory();
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text("Record added successfully!"),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    } else {
+                       ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text("Failed to add record."),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
+                child: const Text("Add"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showBatchEditDialog(BuildContext ctx) async {
+    if (_selectedDate == null) return;
+    
+    if (!ctx.mounted) return;
+
+    showDialog(
+      context: ctx,
+      builder: (context) => BatchEditDialog(
+        primaryDate: _selectedDate!,
+        compareDate: _compareDate,
+        platform: platform,
+        onSave: () {
+          _fetchHistory();
+        },
+      ),
+    );
+  }
+}
+
+class BatchEditDialog extends StatefulWidget {
+  final String primaryDate;
+  final String? compareDate;
+  final MethodChannel platform;
+  final VoidCallback onSave;
+
+  const BatchEditDialog({
+    super.key,
+    required this.primaryDate,
+    this.compareDate,
+    required this.platform,
+    required this.onSave,
+  });
+
+  @override
+  State<BatchEditDialog> createState() => _BatchEditDialogState();
+}
+
+class _BatchEditDialogState extends State<BatchEditDialog> {
+  late String _currentDate;
+  final TextEditingController _controller = TextEditingController();
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentDate = widget.primaryDate;
+    _loadContent();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadContent() async {
+    setState(() => _isLoading = true);
+    try {
+      final String? res = await widget.platform.invokeMethod('getDailyFile', {'date': _currentDate});
+      if (mounted) {
+        _controller.text = res ?? "";
+      }
+    } catch (e) {
+      debugPrint("Failed to load daily file: $e");
+      if (mounted) {
+        _controller.text = "Error loading file.";
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _saveContent() async {
+    final newContent = _controller.text;
+    try {
+      final success = await widget.platform.invokeMethod('saveDailyFile', {
+        'date': _currentDate,
+        'content': newContent,
+      });
+
+      if (mounted) {
+        if (success == true) {
+          widget.onSave();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("File saved successfully!")),
+          );
+          Navigator.pop(context);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Failed to save file.")),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e")),
+        );
+      }
+    }
+  }
+
+  void _copyContent() {
+    Clipboard.setData(ClipboardData(text: _controller.text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Copied to clipboard")),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text("Edit CSV Data"),
+              IconButton(
+                icon: const Icon(Icons.copy, size: 20),
+                tooltip: "Copy All",
+                onPressed: _copyContent,
+              ),
+            ],
+          ),
+          if (widget.compareDate != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: SegmentedButton<String>(
+                segments: [
+                  ButtonSegment(
+                    value: widget.primaryDate,
+                    label: Text(widget.primaryDate),
+                  ),
+                  ButtonSegment(
+                    value: widget.compareDate!,
+                    label: Text(widget.compareDate!),
+                  ),
+                ],
+                selected: {_currentDate},
+                onSelectionChanged: (Set<String> newSelection) {
+                  if (newSelection.isNotEmpty) {
+                    setState(() {
+                      _currentDate = newSelection.first;
+                    });
+                    _loadContent();
+                  }
+                },
+              ),
+            )
+          else
+            Text(_currentDate, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+        ],
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_isLoading)
+              const LinearProgressIndicator()
+            else
+              const SizedBox(height: 4),
+            const Text(
+              "Start with 'timestamp,containerId,value'",
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                maxLines: null,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: "Loading...",
+                ),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
+        ),
+        ElevatedButton(
+          onPressed: _saveContent,
+          child: const Text("Save & Overwrite"),
+        ),
+      ],
+    );
+  }
 }
 
 class TrendData {
@@ -841,8 +1251,14 @@ class TrendData {
 class TrendChart extends StatefulWidget {
   final List<TrendData> primaryData;
   final List<TrendData>? compareData;
+  final bool showDots;
 
-  const TrendChart({super.key, required this.primaryData, this.compareData});
+  const TrendChart({
+    super.key,
+    required this.primaryData,
+    this.compareData,
+    this.showDots = true,
+  });
 
   @override
   State<TrendChart> createState() => _TrendChartState();
@@ -850,12 +1266,14 @@ class TrendChart extends StatefulWidget {
 
 class _TrendChartState extends State<TrendChart> {
   TrendData? _selectedPoint;
+  bool _isCompareSelected = false;
 
   @override
   void didUpdateWidget(TrendChart oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.primaryData != widget.primaryData) {
       _selectedPoint = null;
+      _isCompareSelected = false;
     }
   }
 
@@ -893,6 +1311,34 @@ class _TrendChartState extends State<TrendChart> {
     return (min, max);
   }
 
+  (double, double) _getValueRange() {
+    if (widget.primaryData.isEmpty) return (0.0, 1.0);
+
+    double minVal = widget.primaryData.first.value;
+    double maxVal = widget.primaryData.first.value;
+
+    for (var d in widget.primaryData) {
+      if (d.value < minVal) minVal = d.value;
+      if (d.value > maxVal) maxVal = d.value;
+    }
+
+    if (widget.compareData != null) {
+      for (var d in widget.compareData!) {
+        if (d.value < minVal) minVal = d.value;
+        if (d.value > maxVal) maxVal = d.value;
+      }
+    }
+
+    double range = maxVal - minVal;
+    if (range < 1.0) {
+      range = (maxVal * 0.1).clamp(10.0, double.infinity);
+      minVal -= range / 2;
+      maxVal += range / 2;
+    }
+
+    return (minVal, maxVal);
+  }
+
   void _handleTap(TapDownDetails details) {
     if (widget.primaryData.isEmpty) return;
 
@@ -905,6 +1351,7 @@ class _TrendChartState extends State<TrendChart> {
 
     TrendData? closest;
     double minDistance = double.infinity;
+    bool isCompare = false;
 
     for (var data in widget.primaryData) {
       final minutes = data.time.hour * 60.0 + data.time.minute;
@@ -913,16 +1360,32 @@ class _TrendChartState extends State<TrendChart> {
       if (distance < minDistance) {
         minDistance = distance;
         closest = data;
+        isCompare = false;
+      }
+    }
+
+    if (widget.compareData != null) {
+      for (var data in widget.compareData!) {
+        final minutes = data.time.hour * 60.0 + data.time.minute;
+        final x = (minutes - minMinutes) / range * size.width;
+        final distance = (x - localPos.dx).abs();
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = data;
+          isCompare = true;
+        }
       }
     }
 
     if (minDistance < 30) {
       setState(() {
         _selectedPoint = closest;
+        _isCompareSelected = isCompare;
       });
     } else {
       setState(() {
         _selectedPoint = null;
+        _isCompareSelected = false;
       });
     }
   }
@@ -937,9 +1400,11 @@ class _TrendChartState extends State<TrendChart> {
           CustomPaint(
             size: Size.infinite,
             painter: _ChartPainter(
-              widget.primaryData,
-              widget.compareData,
-              _selectedPoint,
+              primaryData: widget.primaryData,
+              compareData: widget.compareData,
+              selectedPoint: _selectedPoint,
+              isCompareSelected: _isCompareSelected,
+              showDots: widget.showDots,
             ),
           ),
           if (_selectedPoint != null) _buildTooltip(),
@@ -950,24 +1415,52 @@ class _TrendChartState extends State<TrendChart> {
 
   Widget _buildTooltip() {
     final (minMinutes, maxMinutes) = _getTimeRange();
-    final range = maxMinutes - minMinutes;
+    final timeRange = maxMinutes - minMinutes;
     final minutes =
         _selectedPoint!.time.hour * 60.0 + _selectedPoint!.time.minute;
 
+    final (minVal, maxVal) = _getValueRange();
+    final valRange = maxVal - minVal;
+
+    TrendData? otherPoint;
+    if (widget.compareData != null && widget.compareData!.isNotEmpty) {
+      final targetList = _isCompareSelected ? widget.primaryData : widget.compareData!;
+       if (targetList.isNotEmpty) {
+          double minDiff = double.infinity;
+          for (var p in targetList) {
+             final pMinutes = p.time.hour * 60.0 + p.time.minute;
+             final diff = (pMinutes - minutes).abs();
+             if (diff < minDiff) {
+               minDiff = diff;
+               otherPoint = p;
+             }
+          }
+       }
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        final x = (minutes - minMinutes) / range * constraints.maxWidth;
-        final timeStr =
-            "${_selectedPoint!.time.hour.toString().padLeft(2, '0')}:${_selectedPoint!.time.minute.toString().padLeft(2, '0')}";
-        final valStr = _formatValue(_selectedPoint!.value);
+        final x = (minutes - minMinutes) / timeRange * constraints.maxWidth;
+        // Calculate Y position
+        final y = constraints.maxHeight - ((_selectedPoint!.value - minVal) / valRange * constraints.maxHeight);
+        
+        bool showAbove = y > 80; 
+        final top = showAbove ? y - 85 : y + 15;
 
+        final timeStr1 =
+            "${_selectedPoint!.time.hour.toString().padLeft(2, '0')}:${_selectedPoint!.time.minute.toString().padLeft(2, '0')}";
+        
+        final val1 = _selectedPoint!.value;
+        final color1 = _isCompareSelected ? Colors.orange : Colors.indigo;
+        
         return Positioned(
-          left: (x - 45).clamp(0, constraints.maxWidth - 90),
-          top: -45,
+          left: (x - 70).clamp(0, constraints.maxWidth - 140),
+          top: top,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            width: 140, 
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.indigo.withOpacity(0.9),
+              color: Colors.black87,
               borderRadius: BorderRadius.circular(6),
               boxShadow: const [
                 BoxShadow(
@@ -979,23 +1472,43 @@ class _TrendChartState extends State<TrendChart> {
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  timeStr,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(width: 8, height: 8, decoration: BoxDecoration(color: color1, shape: BoxShape.circle)),
+                    const SizedBox(width: 6),
+                    Text(
+                      timeStr1,
+                      style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _formatValue(val1),
+                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ],
                 ),
-                Text(
-                  valStr,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+                if (otherPoint != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(width: 8, height: 8, decoration: BoxDecoration(color: _isCompareSelected ? Colors.indigo : Colors.orange, shape: BoxShape.circle)),
+                      const SizedBox(width: 6),
+                      Text(
+                        "${otherPoint!.time.hour.toString().padLeft(2, '0')}:${otherPoint!.time.minute.toString().padLeft(2, '0')}",
+                        style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _formatValue(otherPoint!.value),
+                        style: const TextStyle(color: Colors.white, fontSize: 11),
+                      ),
+                    ],
                   ),
-                ),
+                ]
               ],
             ),
           ),
@@ -1014,8 +1527,16 @@ class _ChartPainter extends CustomPainter {
   final List<TrendData> primaryData;
   final List<TrendData>? compareData;
   final TrendData? selectedPoint;
+  final bool isCompareSelected;
+  final bool showDots;
 
-  _ChartPainter(this.primaryData, this.compareData, this.selectedPoint);
+  _ChartPainter({
+    required this.primaryData,
+    this.compareData,
+    this.selectedPoint,
+    this.isCompareSelected = false,
+    required this.showDots,
+  });
 
   (double, double) _getTimeRange() {
     if (primaryData.isEmpty) return (0.0, 1440.0);
@@ -1130,18 +1651,18 @@ class _ChartPainter extends CustomPainter {
         size.height - ((selectedPoint!.value - minVal) / range * size.height);
 
     final linePaint = Paint()
-      ..color = Colors.indigo.withOpacity(0.3)
+      ..color = (isCompareSelected ? Colors.orange : Colors.indigo).withOpacity(0.3)
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
     canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
 
     final outerRing = Paint()
-      ..color = Colors.indigo.withOpacity(0.2)
+      ..color = (isCompareSelected ? Colors.orange : Colors.indigo).withOpacity(0.2)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(Offset(x, y), 8, outerRing);
 
     final innerDot = Paint()
-      ..color = Colors.indigo
+      ..color = (isCompareSelected ? Colors.orange : Colors.indigo)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(Offset(x, y), 4, innerDot);
 
@@ -1161,30 +1682,61 @@ class _ChartPainter extends CustomPainter {
     double minMinutes,
     double timeRange,
   ) {
+    if (data.isEmpty) return;
+
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 2.5
+      ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
     final dotPaint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
+
     final path = Path();
-    bool moved = false;
+    
+    // Calculate points
+    final points = <Offset>[];
     for (int i = 0; i < data.length; i++) {
-      final minutes = data[i].time.hour * 60.0 + data[i].time.minute;
-      final x = (minutes - minMinutes) / timeRange * size.width;
-      final y = size.height - ((data[i].value - minVal) / range * size.height);
-      if (!moved) {
-        path.moveTo(x, y);
-        moved = true;
-      } else {
-        path.lineTo(x, y);
-      }
-      canvas.drawCircle(Offset(x, y), 3.5, dotPaint);
+        final minutes = data[i].time.hour * 60.0 + data[i].time.minute;
+        final x = (minutes - minMinutes) / timeRange * size.width;
+        final y = size.height - ((data[i].value - minVal) / range * size.height);
+        points.add(Offset(x, y));
     }
+
+    if (points.isNotEmpty) {
+      path.moveTo(points[0].dx, points[0].dy);
+      
+      if (points.length == 1) {
+         path.addOval(Rect.fromCircle(center: points[0], radius: 1));
+      } else {
+         // Catmull-Rom Spline implementation
+         for (int i = 0; i < points.length - 1; i++) {
+           final p0 = i > 0 ? points[i - 1] : points[i]; // Previous
+           final p1 = points[i]; // Current
+           final p2 = points[i + 1]; // Next
+           final p3 = i < points.length - 2 ? points[i + 2] : points[i + 1]; // Next Next
+
+           final cp1x = p1.dx + (p2.dx - p0.dx) / 6 * 0.5; // Tension 0.5
+           final cp1y = p1.dy + (p2.dy - p0.dy) / 6 * 0.5;
+
+           final cp2x = p2.dx - (p3.dx - p1.dx) / 6 * 0.5;
+           final cp2y = p2.dy - (p3.dy - p1.dy) / 6 * 0.5;
+
+           path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+         }
+      }
+    }
+
     canvas.drawPath(path, paint);
+
+    // Conditionally draw dots
+    if (showDots) {
+      for (final point in points) {
+        canvas.drawCircle(point, 2.0, dotPaint);
+      }
+    }
   }
 
   void _drawGrid(

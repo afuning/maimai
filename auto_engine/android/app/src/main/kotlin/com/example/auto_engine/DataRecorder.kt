@@ -71,7 +71,11 @@ object DataRecorder {
             val datePart = timestamp.split(" ")[0]
             val file = File(filesDir, "superlike_records_$datePart.csv")
             
-            if (!file.exists()) return false
+            if (!file.exists()) {
+                // Return false if updating but file doesn't exist
+                // Ideally for manual add we should use addManualRecord
+                return false
+            }
             
             val lines = file.readLines().toMutableList()
             var modified = false
@@ -98,6 +102,57 @@ object DataRecorder {
             Log.e(TAG, "Failed to update record", e)
         }
         return false
+    }
+
+    fun getAllRecordFiles(): List<String> {
+        return filesDir?.listFiles { _, name -> name.startsWith("superlike_records_") && name.endsWith(".csv") }
+            ?.map { it.absolutePath }
+            ?: emptyList()
+    }
+
+    fun addManualRecord(timestamp: String, value: String): Boolean {
+        try {
+            val datePart = timestamp.split(" ")[0]
+            val file = File(filesDir, "superlike_records_$datePart.csv")
+
+            if (!file.exists()) {
+                file.writeText(HEADER)
+            }
+            
+            // Read lines and filter out empty ones
+            val lines = file.readLines().filter { it.isNotBlank() }.toMutableList()
+            
+            // Ensure header exists if file was empty
+            if (lines.isEmpty()) {
+                lines.add(HEADER.trim())
+            } else if (lines[0].trim() != HEADER.trim()) {
+                 // If first line is not header, we might have a problem or legacy file.
+                 // Assuming standard format for now.
+            }
+
+            val containerId = "manual_entry"
+            val newLine = "$timestamp,$containerId,$value"
+            
+            // Find insertion point skipping header
+            var insertIndex = lines.size
+            for (i in 1 until lines.size) {
+                 val currentLine = lines[i]
+                 val currentTimestamp = currentLine.split(",")[0]
+                 if (timestamp < currentTimestamp) {
+                     insertIndex = i
+                     break
+                 }
+            }
+            
+            lines.add(insertIndex, newLine)
+            
+            file.writeText(lines.joinToString("\n") + "\n")
+            Log.d(TAG, "Added manual record sorted: $newLine")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add manual record", e)
+            return false
+        }
     }
 
     fun deleteRecord(timestamp: String): Boolean {
@@ -127,6 +182,30 @@ object DataRecorder {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to delete record", e)
+        }
+        return false
+    }
+
+    fun getDailyContent(dateStr: String): String {
+        try {
+            val file = File(filesDir, "superlike_records_$dateStr.csv")
+            if (file.exists()) {
+                return file.readText()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read daily content", e)
+        }
+        return ""
+    }
+
+    fun saveDailyContent(dateStr: String, content: String): Boolean {
+        try {
+            val file = File(filesDir, "superlike_records_$dateStr.csv")
+            file.writeText(content)
+            Log.d(TAG, "Overwrote daily content for $dateStr")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save daily content", e)
         }
         return false
     }
