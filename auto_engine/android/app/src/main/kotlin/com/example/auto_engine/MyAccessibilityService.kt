@@ -156,5 +156,44 @@ class MyAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d("MyAccessibilityService", "Service Connected")
+        
+        // Optimize: Move Scheduler init here
+        ScraperScheduler.init(this)
+        
+        // Start as Foreground Service
+        startForegroundService()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ScraperScheduler.stop()
+        Log.d("MyAccessibilityService", "Service Destroyed")
+    }
+
+    private fun startForegroundService() {
+        val channelId = "auto_engine_service"
+        val channelName = "Auto Engine Background Service"
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val chan = android.app.NotificationChannel(channelId, channelName, android.app.NotificationManager.IMPORTANCE_LOW)
+            val manager = getSystemService(android.app.NotificationManager::class.java)
+            manager.createNotificationChannel(chan)
+        }
+
+        val notification = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(this, channelId)
+                .setContentTitle("Auto Engine Running")
+                .setContentText("Keeping accessibility service active")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .build()
+        } else {
+             android.app.Notification.Builder(this)
+                .setContentTitle("Auto Engine Running")
+                .setContentText("Keeping accessibility service active")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .build()
+        }
+
+        startForeground(1001, notification)
     }
 }

@@ -15,7 +15,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        ScraperScheduler.init(this)
+        // ScraperScheduler.init(this) // Moved to AccessibilityService
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isAccessibilityEnabled" -> {
