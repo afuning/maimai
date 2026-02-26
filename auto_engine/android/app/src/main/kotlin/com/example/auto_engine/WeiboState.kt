@@ -3,12 +3,12 @@ package com.example.auto_engine
 object WeiboState {
 
     var hasClickedExpand = false
-    var hasReadLike = false
+    var isScrapeCompleted = true
     var startTime = System.currentTimeMillis()
 
     fun reset() {
         hasClickedExpand = false
-        hasReadLike = false
+        isScrapeCompleted = false
         startTime = System.currentTimeMillis()
     }
 

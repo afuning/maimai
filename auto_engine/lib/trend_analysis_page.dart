@@ -116,17 +116,17 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
         await Share.shareXFiles(xFiles, text: "All CSV Records");
       } else {
         if (context.mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(
-             const SnackBar(content: Text("No files to export")),
-           );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text("No files to export")));
         }
       }
     } catch (e) {
       debugPrint("Error exporting files: $e");
       if (context.mounted) {
-         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text("Export failed: $e")),
-         );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Export failed: $e")));
       }
     }
   }
@@ -138,17 +138,17 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trend Analysis'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.calendar_month_outlined),
-              tooltip: "Add Date",
-              onPressed: _addNewDate,
-            ),
-            IconButton(
-              icon: const Icon(Icons.description_outlined),
-              tooltip: "Export All CSVs",
-              onPressed: () => _exportAllCsv(context),
-            ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month_outlined),
+            tooltip: "Add Date",
+            onPressed: _addNewDate,
+          ),
+          IconButton(
+            icon: const Icon(Icons.description_outlined),
+            tooltip: "Export All CSVs",
+            onPressed: () => _exportAllCsv(context),
+          ),
           IconButton(
             icon: const Icon(Icons.share),
             tooltip: "Export Report",
@@ -361,8 +361,10 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
             const Divider(),
             _buildStatRow(
               "Growth Today",
-              "+${_formatValue(growth)}",
-              valueColor: Colors.green,
+              "${growth > 0 ? "+" : ""}${_formatValue(growth)}",
+              valueColor: growth > 0
+                  ? Colors.green
+                  : (growth < 0 ? Colors.red : Colors.grey),
             ),
           ],
         ),
@@ -408,6 +410,10 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
       final compareData = _compareDate != null
           ? (_groupedHistory[_compareDate] ?? [])
           : null;
+
+      // Calculate dynamic height:
+      // Header (~100) + Chart area (~280) + Table header (~40) + Table rows (N * 40) + Footer (~100)
+      final contentHeight = 550 + (targetData.length * 40).toDouble();
 
       final reportWidget = Material(
         color: Colors.white,
@@ -539,10 +545,14 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
                         Padding(
                           padding: const EdgeInsets.all(8),
                           child: Text(
-                            index == 0 ? "-" : "+${_formatValue(diff)}",
+                            index == 0
+                                ? "-"
+                                : "${diff > 0 ? "+" : ""}${_formatValue(diff)}",
                             style: TextStyle(
-                              color: diff > 0 ? Colors.green : Colors.grey,
-                              fontWeight: diff > 0
+                              color: diff > 0
+                                  ? Colors.green
+                                  : (diff < 0 ? Colors.red : Colors.grey),
+                              fontWeight: diff != 0
                                   ? FontWeight.bold
                                   : FontWeight.normal,
                               fontSize: 12,
@@ -579,7 +589,7 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
       final renderView = RenderView(
         view: view,
         configuration: ViewConfiguration(
-          logicalConstraints: BoxConstraints.tight(const ui.Size(400, 2000)),
+          logicalConstraints: BoxConstraints.tight(ui.Size(400, contentHeight)),
           devicePixelRatio: view.devicePixelRatio,
         ),
         child: RenderPositionedBox(
@@ -618,8 +628,6 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
 
       if (mounted) Navigator.pop(context);
 
-
-
       if (mounted) {
         showModalBottomSheet(
           context: context,
@@ -642,7 +650,10 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.photo_library, color: Colors.indigo),
+                  leading: const Icon(
+                    Icons.photo_library,
+                    color: Colors.indigo,
+                  ),
                   title: const Text("Save to Album"),
                   onTap: () async {
                     Navigator.pop(context);
@@ -724,13 +735,16 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
                   ),
                   Row(
                     children: [
-                       IconButton(
+                      IconButton(
                         icon: const Icon(Icons.edit_note, color: Colors.indigo),
                         tooltip: "Batch Edit",
                         onPressed: () => _showBatchEditDialog(context),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.add_circle_outline, color: Colors.indigo),
+                        icon: const Icon(
+                          Icons.add_circle_outline,
+                          color: Colors.indigo,
+                        ),
                         tooltip: "Add Record",
                         onPressed: () => _showAddRecordDialog(context),
                       ),
@@ -957,7 +971,9 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
                           initialTime: selectedTime,
                           builder: (BuildContext context, Widget? child) {
                             return MediaQuery(
-                              data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+                              data: MediaQuery.of(
+                                context,
+                              ).copyWith(alwaysUse24HourFormat: true),
                               child: child!,
                             );
                           },
@@ -1024,7 +1040,7 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
                         ),
                       );
                     } else {
-                       ScaffoldMessenger.of(ctx).showSnackBar(
+                      ScaffoldMessenger.of(ctx).showSnackBar(
                         const SnackBar(
                           content: Text("Failed to add record."),
                           backgroundColor: Colors.red,
@@ -1044,7 +1060,7 @@ class _TrendAnalysisPageState extends State<TrendAnalysisPage> {
 
   void _showBatchEditDialog(BuildContext ctx) async {
     if (_selectedDate == null) return;
-    
+
     if (!ctx.mounted) return;
 
     showDialog(
@@ -1100,7 +1116,9 @@ class _BatchEditDialogState extends State<BatchEditDialog> {
   Future<void> _loadContent() async {
     setState(() => _isLoading = true);
     try {
-      final String? res = await widget.platform.invokeMethod('getDailyFile', {'date': _currentDate});
+      final String? res = await widget.platform.invokeMethod('getDailyFile', {
+        'date': _currentDate,
+      });
       if (mounted) {
         _controller.text = res ?? "";
       }
@@ -1132,25 +1150,25 @@ class _BatchEditDialogState extends State<BatchEditDialog> {
           );
           Navigator.pop(context);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Failed to save file.")),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text("Failed to save file.")));
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
   }
 
   void _copyContent() {
     Clipboard.setData(ClipboardData(text: _controller.text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Copied to clipboard")),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Copied to clipboard")));
   }
 
   @override
@@ -1197,7 +1215,10 @@ class _BatchEditDialogState extends State<BatchEditDialog> {
               ),
             )
           else
-            Text(_currentDate, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+            Text(
+              _currentDate,
+              style: const TextStyle(fontSize: 14, color: Colors.grey),
+            ),
         ],
       ),
       content: SizedBox(
@@ -1424,40 +1445,46 @@ class _TrendChartState extends State<TrendChart> {
 
     TrendData? otherPoint;
     if (widget.compareData != null && widget.compareData!.isNotEmpty) {
-      final targetList = _isCompareSelected ? widget.primaryData : widget.compareData!;
-       if (targetList.isNotEmpty) {
-          double minDiff = double.infinity;
-          for (var p in targetList) {
-             final pMinutes = p.time.hour * 60.0 + p.time.minute;
-             final diff = (pMinutes - minutes).abs();
-             if (diff < minDiff) {
-               minDiff = diff;
-               otherPoint = p;
-             }
+      final targetList = _isCompareSelected
+          ? widget.primaryData
+          : widget.compareData!;
+      if (targetList.isNotEmpty) {
+        double minDiff = double.infinity;
+        for (var p in targetList) {
+          final pMinutes = p.time.hour * 60.0 + p.time.minute;
+          final diff = (pMinutes - minutes).abs();
+          if (diff < minDiff) {
+            minDiff = diff;
+            otherPoint = p;
           }
-       }
+        }
+      }
     }
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final x = (minutes - minMinutes) / timeRange * constraints.maxWidth;
         // Calculate Y position
-        final y = constraints.maxHeight - ((_selectedPoint!.value - minVal) / valRange * constraints.maxHeight);
-        
-        bool showAbove = y > 80; 
+        final y =
+            constraints.maxHeight -
+            ((_selectedPoint!.value - minVal) /
+                valRange *
+                constraints.maxHeight);
+
+        bool showAbove = y > 80;
         final top = showAbove ? y - 85 : y + 15;
 
         final timeStr1 =
             "${_selectedPoint!.time.hour.toString().padLeft(2, '0')}:${_selectedPoint!.time.minute.toString().padLeft(2, '0')}";
-        
+
         final val1 = _selectedPoint!.value;
         final color1 = _isCompareSelected ? Colors.orange : Colors.indigo;
-        
+
         return Positioned(
           left: (x - 70).clamp(0, constraints.maxWidth - 140),
           top: top,
           child: Container(
-            width: 140, 
+            width: 140,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
               color: Colors.black87,
@@ -1477,16 +1504,31 @@ class _TrendChartState extends State<TrendChart> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(width: 8, height: 8, decoration: BoxDecoration(color: color1, shape: BoxShape.circle)),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: color1,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       timeStr1,
-                      style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(width: 6),
                     Text(
                       _formatValue(val1),
-                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -1495,20 +1537,36 @@ class _TrendChartState extends State<TrendChart> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(width: 8, height: 8, decoration: BoxDecoration(color: _isCompareSelected ? Colors.indigo : Colors.orange, shape: BoxShape.circle)),
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _isCompareSelected
+                              ? Colors.indigo
+                              : Colors.orange,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         "${otherPoint!.time.hour.toString().padLeft(2, '0')}:${otherPoint!.time.minute.toString().padLeft(2, '0')}",
-                        style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(width: 6),
                       Text(
                         _formatValue(otherPoint!.value),
-                        style: const TextStyle(color: Colors.white, fontSize: 11),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                        ),
                       ),
                     ],
                   ),
-                ]
+                ],
               ],
             ),
           ),
@@ -1651,13 +1709,17 @@ class _ChartPainter extends CustomPainter {
         size.height - ((selectedPoint!.value - minVal) / range * size.height);
 
     final linePaint = Paint()
-      ..color = (isCompareSelected ? Colors.orange : Colors.indigo).withOpacity(0.3)
+      ..color = (isCompareSelected ? Colors.orange : Colors.indigo).withOpacity(
+        0.3,
+      )
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
     canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
 
     final outerRing = Paint()
-      ..color = (isCompareSelected ? Colors.orange : Colors.indigo).withOpacity(0.2)
+      ..color = (isCompareSelected ? Colors.orange : Colors.indigo).withOpacity(
+        0.2,
+      )
       ..style = PaintingStyle.fill;
     canvas.drawCircle(Offset(x, y), 8, outerRing);
 
@@ -1695,37 +1757,39 @@ class _ChartPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     final path = Path();
-    
+
     // Calculate points
     final points = <Offset>[];
     for (int i = 0; i < data.length; i++) {
-        final minutes = data[i].time.hour * 60.0 + data[i].time.minute;
-        final x = (minutes - minMinutes) / timeRange * size.width;
-        final y = size.height - ((data[i].value - minVal) / range * size.height);
-        points.add(Offset(x, y));
+      final minutes = data[i].time.hour * 60.0 + data[i].time.minute;
+      final x = (minutes - minMinutes) / timeRange * size.width;
+      final y = size.height - ((data[i].value - minVal) / range * size.height);
+      points.add(Offset(x, y));
     }
 
     if (points.isNotEmpty) {
       path.moveTo(points[0].dx, points[0].dy);
-      
+
       if (points.length == 1) {
-         path.addOval(Rect.fromCircle(center: points[0], radius: 1));
+        path.addOval(Rect.fromCircle(center: points[0], radius: 1));
       } else {
-         // Catmull-Rom Spline implementation
-         for (int i = 0; i < points.length - 1; i++) {
-           final p0 = i > 0 ? points[i - 1] : points[i]; // Previous
-           final p1 = points[i]; // Current
-           final p2 = points[i + 1]; // Next
-           final p3 = i < points.length - 2 ? points[i + 2] : points[i + 1]; // Next Next
+        // Catmull-Rom Spline implementation
+        for (int i = 0; i < points.length - 1; i++) {
+          final p0 = i > 0 ? points[i - 1] : points[i]; // Previous
+          final p1 = points[i]; // Current
+          final p2 = points[i + 1]; // Next
+          final p3 = i < points.length - 2
+              ? points[i + 2]
+              : points[i + 1]; // Next Next
 
-           final cp1x = p1.dx + (p2.dx - p0.dx) / 6 * 0.5; // Tension 0.5
-           final cp1y = p1.dy + (p2.dy - p0.dy) / 6 * 0.5;
+          final cp1x = p1.dx + (p2.dx - p0.dx) / 6 * 0.5; // Tension 0.5
+          final cp1y = p1.dy + (p2.dy - p0.dy) / 6 * 0.5;
 
-           final cp2x = p2.dx - (p3.dx - p1.dx) / 6 * 0.5;
-           final cp2y = p2.dy - (p3.dy - p1.dy) / 6 * 0.5;
+          final cp2x = p2.dx - (p3.dx - p1.dx) / 6 * 0.5;
+          final cp2y = p2.dy - (p3.dy - p1.dy) / 6 * 0.5;
 
-           path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
-         }
+          path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+        }
       }
     }
 

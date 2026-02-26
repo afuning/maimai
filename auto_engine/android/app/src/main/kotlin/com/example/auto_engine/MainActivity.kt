@@ -100,6 +100,22 @@ class MainActivity : FlutterActivity() {
                     val files = DataRecorder.getAllRecordFiles()
                     result.success(files)
                 }
+                "commentOnPost" -> {
+                    val mid = call.argument<String>("mid") ?: ""
+                    val comment = call.argument<String>("comment") ?: ""
+                    WeiboCommentHelper.commentOnPost(this, mid, comment) { success ->
+                        runOnUiThread {
+                            result.success(success)
+                        }
+                    }
+                }
+                "backToApp" -> {
+                    val intent = Intent(this, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    }
+                    startActivity(intent)
+                    result.success(true)
+                }
                 else -> {
                     result.notImplemented()
                 }

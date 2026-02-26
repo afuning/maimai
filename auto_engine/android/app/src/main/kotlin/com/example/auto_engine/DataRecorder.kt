@@ -22,7 +22,23 @@ object DataRecorder {
     }
 
     fun record(containerId: String, value: String) {
-        val now = Date()
+        var now = Date()
+        val calendar = Calendar.getInstance()
+        calendar.time = now
+        
+        val hour = calendar.get(Calendar.HOUR_OF_DAY)
+        val minute = calendar.get(Calendar.MINUTE)
+        
+        // If it's 00:00 or 00:01, treat it as 23:59:59 of the previous day
+        if (hour == 0 && (minute == 0 || minute == 1)) {
+            calendar.add(Calendar.DAY_OF_YEAR, -1)
+            calendar.set(Calendar.HOUR_OF_DAY, 23)
+            calendar.set(Calendar.MINUTE, 59)
+            calendar.set(Calendar.SECOND, 59)
+            now = calendar.time
+            Log.d(TAG, "Syncing 00:00/01 data to previous day: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(now)}")
+        }
+
         val file = getFileForDate(now)
         
         try {

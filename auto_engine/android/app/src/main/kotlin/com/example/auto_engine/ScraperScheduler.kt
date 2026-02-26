@@ -70,10 +70,13 @@ object ScraperScheduler {
         val timeSinceLast = now - lastScrapeTime
         if (timeSinceLast >= (INTERVAL_MS + jitter)) return true
         
-        // Condition 2: 00:00 requirement
+        // Condition 2: Specific Time requirements
         val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
         val currentTimeStr = sdf.format(Date(now))
-        if (currentTimeStr == "00:00" || currentTimeStr == "00:01") {
+        
+        // Mandatory at 00:00 and 00:13
+        if (currentTimeStr == "00:00" || currentTimeStr == "00:01" || 
+            currentTimeStr == "00:13" || currentTimeStr == "00:14") {
             // Check if we already scraped in the last 10 minutes to avoid double capture
             if (now - lastScrapeTime > 10 * 60 * 1000L) return true
         }
@@ -98,7 +101,7 @@ object ScraperScheduler {
         lastScrapeValue = value
         lastScrapeTime = System.currentTimeMillis()
         lastError = ""
-        WeiboState.hasReadLike = true
+        WeiboState.isScrapeCompleted = true
         DataRecorder.record(containerId, value)
         Log.d(TAG, "Scrape result: $value at $lastScrapeTime")
     }
